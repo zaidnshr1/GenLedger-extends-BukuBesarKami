@@ -1,159 +1,437 @@
 # BukuBesarKami — General Ledger API
 
-> Mencatat arus keuangan proyek via double-entry bookkeeping.
- 
-**Stack:** Spring Boot · Java 21 · PostgreSQL · JWT · Maven
+A RESTful API for project-based financial recording using **double-entry bookkeeping**.  
+Built to ensure accurate, traceable, and secure cash flow management across multiple projects.
+  
+**Stack:** Spring Boot 3.5.11 · Java 21 · PostgreSQL 16 · Redis 7 · Docker · JWT
 
 ---
 
-## Arsitektur
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Key Features](#key-features)
+- [Tech Stack](#tech-stack)
+- [Getting Started](#getting-started)
+- [API Endpoints](#api-endpoints)
+- [Request Example](#request-example)
+- [Security](#security)
+- [Deployment Guide](#deployment-guide)
+
+---
+
+## Overview
+
+BukuBesarKami is a backend system for managing a general ledger (Buku Besar) across multiple projects under one organization. It supports two roles: a central admin who manages users, projects, and reports, and a project admin who handles daily transactions for their assigned project.
+
+---
+
+## Architecture
+
+### Project Structure
 
 ```
 src/main/java/com/bukubesarkami/
-├── BukuBesarKamiApplication.java
 │
 ├── common/
-│   ├── exception/
-│   │   ├── AppException.java
-│   │   └── GlobalExceptionHandler.java
-│   └── util/
-│       ├── ApiResponse.java
-│       ├── EntryNumberGenerator.java
-│       └── SecurityUtil.java
+│   ├── exception/          # AppException, GlobalExceptionHandler
+│   └── util/               # ApiResponse, EntryNumberGenerator,
+│                             SecurityUtil, IdempotencyService
 │
-├── config/
-│   ├── JwtProperties.java
-│   ├── JwtService.java
-│   ├── JwtAuthFilter.java
-│   ├── SecurityConfig.java
-│   └── OpenApiConfig.java
+├── config/                 # JWT, Security, Redis, RateLimiter, OpenAPI
 │
 ├── core/
-│   ├── entity/
-│   │   ├── User.java
-│   │   ├── Project.java
-│   │   ├── UserProject.java
-│   │   ├── Account.java
-│   │   ├── JournalEntry.java
-│   │   ├── JournalLine.java
-│   │   ├── AuditLog.java
-│   │   └── RefreshToken.java
-│   └── repository/
-│       └── [7 repositories, extend JpaRepository]
+│   ├── entity/             # User, Project, Account, JournalEntry,
+│   │                         JournalLine, AuditLog, RefreshToken
+│   └── repository/         # 7 Spring Data JPA repositories
 │
 └── features/
-    ├── auth/
-    ├── adminpusat/
-    └── adminproject/
+    ├── auth/               # Login, register, refresh token, logout
+    ├── adminpusat/         # User management, projects, COA, reports
+    └── adminproject/       # Journal entries, budget summary
+```
+
+### System Flow
+
+```mermaid
+flowchart TD
+    Client -->|HTTP Request| API[Spring Boot API :8080]
+    API --> Auth[JWT Auth Filter]
+    Auth -->|Valid Token| Router{Role Check}
+    Router -->|ADMIN_PUSAT| AP[Admin Pusat Features]
+    Router -->|ADMIN_PROJECT| APR[Admin Project Features]
+    AP --> DB[(PostgreSQL)]
+    APR --> DB
+    API --> Redis[(Redis)]
+    Redis -->|COA Cache| AP
+    Redis -->|Rate Limit - login| Auth
+    Redis -->|Idempotency Key| APR
+```
+
+### Database Schema
+
+```mermaid
+erDiagram
+    users ||--o{ user_projects : "assigned to"
+    users ||--o{ refresh_tokens : "has"
+    users ||--o{ journal_entries : "created by"
+    projects ||--o{ user_projects : "has admins"
+    projects ||--o{ journal_entries : "has"
+    projects ||--o{ accounts : "owns"
+    accounts ||--o{ journal_lines : "used in"
+    journal_entries ||--o{ journal_lines : "contains"
+    journal_entries ||--o{ audit_logs : "tracked by"
+```
+
+### Journal Entry Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT : Create Journal
+    DRAFT --> DRAFT : Update (editable)
+    DRAFT --> POSTED : Post (locked, final)
+    DRAFT --> VOIDED : Void + reason
+    POSTED --> VOIDED : Void + reason
+    VOIDED --> [*]
 ```
 
 ---
 
-## Quick Start
+## Key Features
 
-### 1. Pre-Requesite
-- Java 21+, Maven, PostgreSQL
+| Feature | Implementation |
+|---------|---------------|
+| Double-entry validation | Checked at service layer (create, update, post) + DB constraint |
+| Role-based access control | `@PreAuthorize` — project admins isolated to assigned projects only |
+| Redis COA cache | `@Cacheable` on Chart of Accounts — reduces DB load on frequent reads |
+| Rate limiting | Bucket4j + Redis — 5 requests/60s per IP on `/auth/login` |
+| Idempotency key | `X-Idempotency-Key` header on journal creation, stored 24h in Redis |
+| Pessimistic locking | `@Lock(PESSIMISTIC_WRITE)` on journal post/update — prevents race conditions |
+| Refresh token rotation | Old token revoked on every refresh; device metadata stored |
+| Async audit log | `@Async` + `REQUIRES_NEW` — every data change is logged (who, what, when) |
+| Pagination | All list endpoints use `Page<T>` + `Pageable` — no unbounded queries |
+| N+1 prevention | `@EntityGraph` on journal and account queries |
+| SQL injection prevention | All queries use JPQL named parameters, no string concatenation |
 
-### 2. Setup Database
-```sql
-CREATE DATABASE bukubesarkami;
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Language | Java 21 |
+| Framework | Spring Boot 3.5.11 |
+| Security | Spring Security · JWT (JJWT 0.12.6) |
+| Database | PostgreSQL 16 |
+| Cache & Rate Limit | Redis 7 · Bucket4j 8.10.1 |
+| ORM | Spring Data JPA · Hibernate |
+| Migration | Flyway |
+| Documentation | SpringDoc OpenAPI 2.8.5 (Swagger UI) |
+| Containerization | Docker · Docker Compose |
+| Utilities | Lombok |
+
+---
+
+## Getting Started
+
+### Option A — Docker (Recommended)
+
+**Prerequisites:** Docker + Docker Compose installed.
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/zaidnshr1/BukuBesarKita.git
+cd BukuBesarKita
+
+# 2. Set up environment variables
+cp .env.example .env
+# Edit .env and fill in your passwords and secrets
+
+# 3. Build the JAR
+mvn clean package -DskipTests
+
+# 4. Start all services (PostgreSQL, Redis, pgAdmin, App)
+docker compose up -d
+
+# 5. Check status
+docker compose ps
+docker compose logs app --follow
 ```
 
-### 3. Configuration Environment
+**Services after startup:**
+
+| Service | URL |
+|---------|-----|
+| API | http://localhost:8080 |
+| Swagger UI | http://localhost:8080/swagger-ui.html |
+| pgAdmin4 | http://localhost:5050 |
+| Health check | http://localhost:8080/actuator/health |
+
+---
+
+### Option B — Local Development
+
+**Prerequisites:** Java 21, Maven 3.9+, PostgreSQL 16+, Redis 7+
+
 ```bash
+# 1. Create database
+psql -U postgres -c "CREATE DATABASE bukubesarkami;"
+
+# 2. Set environment variables
 export DB_USERNAME=postgres
-export DB_PASSWORD=yourpassword
-export JWT_SECRET=YourSecretKeyMinimal32CharsLongSecureKey!
-```
+export DB_PASSWORD=your_password
+export REDIS_PASSWORD=your_redis_password
+export JWT_SECRET=YourSecretKeyMinimum32CharactersLong!
 
-### 4. Run App
-```bash
+# 3. Run
 mvn spring-boot:run
 ```
 
-Flyway otomatis jalankan migrasi dan seed data awal.
+---
 
-### 5. Default credentials
+### Environment Variables
+
+Copy `.env.example` to `.env` and fill in the values. **Never commit `.env` to Git.**
+
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=bukubesarkami
+DB_USERNAME=postgres
+DB_PASSWORD=your_secure_password
+
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=your_redis_password
+
+JWT_SECRET=your_jwt_secret_minimum_32_characters
+JWT_EXPIRATION_MS=3600000
+JWT_REFRESH_EXPIRATION_MS=86400000
+
+PGADMIN_EMAIL=admin@example.com
+PGADMIN_PASSWORD=your_pgadmin_password
+```
+
+---
+
+### Default Credentials (from seed data)
+
 ```
 username: adminpusat
 password: Admin@123
 ```
 
+> **Change this immediately on any non-local environment.**
+
 ---
 
 ## API Endpoints
 
-### Auth
-| Method | Endpoint                     | Akses         |
-|--------|------------------------------|---------------|
-| POST   | `/api/v1/auth/register`      | Public        |
-| POST   | `/api/v1/auth/login`         | Public        |
-| POST   | `/api/v1/auth/refresh-token` | Public        |
-| POST   | `/api/v1/auth/logout`        | Authenticated |
-| GET    | `/api/v1/auth/me`            | Authenticated |
+### Auth — Public
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/auth/register` | Register Admin Pusat |
+| POST | `/api/v1/auth/login` | Login (rate limited: 5 req/60s per IP) |
+| POST | `/api/v1/auth/refresh-token` | Refresh access token |
+| POST | `/api/v1/auth/logout` | Revoke all tokens |
+| GET  | `/api/v1/auth/me` | Current user info |
 
-### Admin Pusat
-| Method | Endpoint                                               | Keterangan                 |
-|--------|--------------------------------------------------------|----------------------------|
-| POST   | `/api/v1/admin-pusat/users`                            | Buat Admin Project         |
-| GET    | `/api/v1/admin-pusat/users`                            | Daftar user                |
-| PATCH  | `/api/v1/admin-pusat/users/{id}/toggle-status`         | Aktif/nonaktif             |
-| POST   | `/api/v1/admin-pusat/projects`                         | Buat proyek + assign admin |
-| GET    | `/api/v1/admin-pusat/projects`                         | Daftar proyek              |
-| PUT    | `/api/v1/admin-pusat/projects/{id}`                    | Update proyek              |
-| POST   | `/api/v1/admin-pusat/projects/{id}/assign-admin`       | Tambah admin               |
-| DELETE | `/api/v1/admin-pusat/projects/{id}/remove-admin/{uid}` | Hapus admin                |
-| POST   | `/api/v1/admin-pusat/accounts`                         | Buat akun COA              |
-| GET    | `/api/v1/admin-pusat/accounts/global`                  | COA global                 |
-| GET    | `/api/v1/admin-pusat/accounts/project/{id}`            | COA per proyek             |
-| GET    | `/api/v1/admin-pusat/reports/profit-loss`              | P&L semua proyek           |
-| GET    | `/api/v1/admin-pusat/reports/profit-loss/{id}`         | P&L per proyek             |
-| GET    | `/api/v1/admin-pusat/reports/trial-balance/{id}`       | Neraca saldo               |
-| GET    | `/api/v1/admin-pusat/audit-logs`                       | Seluruh aktivitas          |
-| GET    | `/api/v1/admin-pusat/audit-logs/project/{id}`          | Aktivitas per proyek       |
+### Admin Pusat — `ADMIN_PUSAT` role required
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/admin-pusat/users` | Create project admin |
+| GET  | `/api/v1/admin-pusat/users` | List all users |
+| PATCH | `/api/v1/admin-pusat/users/{id}/toggle-status` | Enable / disable user |
+| POST | `/api/v1/admin-pusat/projects` | Create project |
+| GET  | `/api/v1/admin-pusat/projects` | List all projects |
+| PUT  | `/api/v1/admin-pusat/projects/{id}` | Update project |
+| POST | `/api/v1/admin-pusat/projects/{id}/assign-admin` | Assign admin to project |
+| DELETE | `/api/v1/admin-pusat/projects/{id}/remove-admin/{uid}` | Remove admin from project |
+| POST | `/api/v1/admin-pusat/accounts` | Create COA account |
+| GET  | `/api/v1/admin-pusat/accounts/global` | Global accounts (cached) |
+| GET  | `/api/v1/admin-pusat/accounts/project/{id}` | Accounts for project (paginated) |
+| GET  | `/api/v1/admin-pusat/reports/profit-loss` | P&L across all projects |
+| GET  | `/api/v1/admin-pusat/reports/profit-loss/{id}` | P&L per project |
+| GET  | `/api/v1/admin-pusat/reports/trial-balance/{id}` | Trial balance |
+| GET  | `/api/v1/admin-pusat/audit-logs` | All activity logs |
+| GET  | `/api/v1/admin-pusat/audit-logs/project/{id}` | Activity logs per project |
 
-### Admin Project
-| Method | Endpoint                                | Keterangan                 |
-|--------|-----------------------------------------|----------------------------|
-| POST   | `/api/v1/project/journals`              | Buat jurnal (double-entry) |
-| GET    | `/api/v1/project/journals/project/{id}` | Riwayat transaksi          |
-| GET    | `/api/v1/project/journals/{id}`         | Detail jurnal              |
-| PUT    | `/api/v1/project/journals/{id}`         | Update jurnal (DRAFT saja) |
-| POST   | `/api/v1/project/journals/{id}/post`    | Post jurnal                |
-| POST   | `/api/v1/project/journals/{id}/void`    | Batalkan jurnal            |
-| GET    | `/api/v1/project/budget/{projectId}`    | Cek saldo anggaran         |
-
-**Swagger UI:** `http://localhost:8080/swagger-ui.html`
+### Admin Project — `ADMIN_PROJECT` or `ADMIN_PUSAT`
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/project/journals` | Create journal entry (requires `X-Idempotency-Key`) |
+| GET  | `/api/v1/project/journals/project/{id}` | Transaction history (paginated) |
+| GET  | `/api/v1/project/journals/{id}` | Journal detail with all lines |
+| PUT  | `/api/v1/project/journals/{id}` | Update journal (DRAFT only) |
+| POST | `/api/v1/project/journals/{id}/post` | Post journal (DRAFT → POSTED) |
+| POST | `/api/v1/project/journals/{id}/void` | Void journal with reason |
+| GET  | `/api/v1/project/budget/{projectId}` | Project budget summary |
 
 ---
 
-## Keamanan & Integritas
+## Request Example
 
-### Double-Entry Check
-Setiap jurnal wajib `total_debit == total_credit` dan minimum 2 baris. Dicek di:
-1. Saat pembuatan jurnal (`createEntry`)
-2. Saat update jurnal (`updateEntry`)
-3. Saat posting jurnal (`postEntry`) — final gate
+**Create Journal Entry**
 
-### JWT Security
-- Access token: 1 jam
-- Refresh token: 24 jam dengan **rotation** (setiap refresh, token lama direvoke)
-- Semua token lama direvoke saat login ulang
+```http
+POST /api/v1/project/journals
+Authorization: Bearer {access_token}
+X-Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
+Content-Type: application/json
 
-### Role-Based Access Control
+{
+  "projectId": "uuid-project",
+  "entryDate": "2026-06-01",
+  "description": "Purchase of project materials",
+  "referenceNumber": "INV-2026-001",
+  "lines": [
+    {
+      "accountId": "uuid-expense-account",
+      "debitAmount": 5000000,
+      "creditAmount": 0,
+      "description": "Material expense"
+    },
+    {
+      "accountId": "uuid-cash-account",
+      "debitAmount": 0,
+      "creditAmount": 5000000,
+      "description": "Cash payment"
+    }
+  ]
+}
 ```
-ADMIN_PUSAT  → Akses semua proyek + manajemen sistem
-ADMIN_PROJECT → Akses proyek yang di-assign saja (isolasi data antar proyek)
+
+**Unbalanced entry response (422):**
+```json
+{
+  "status": 422,
+  "error": "Unprocessable Entity",
+  "message": "Jurnal tidak seimbang: total debit harus sama dengan total kredit."
+}
 ```
 
-### Data Integrity
-- Semua operasi finansial dalam `@Transactional`
-- Audit log async `@Transactional(propagation = REQUIRES_NEW)` — tidak mengganggu transaksi utama
-- Jurnal yang sudah POSTED tidak bisa dihapus, hanya bisa VOID dengan alasan
-- `amount` menggunakan `BigDecimal` (presisi 19,2)
-- Database constraint: `total_debit = total_credit` saat status POSTED (DB-level safety net)
+**Rate limit exceeded response (429):**
+```json
+{
+  "status": 429,
+  "error": "Too Many Requests",
+  "message": "Terlalu banyak percobaan login. Coba lagi dalam 60 detik."
+}
+```
 
 ---
 
-M. Zaid Anshori — m.zaidanshori04@gmail.com  
-https://github.com/zaidnshr1/BukuBesarKita
+## Security
+
+- **JWT** — access token (1 hour), refresh token (24 hours) with rotation
+- **Refresh token metadata** — IP address and User-Agent stored; suspicious device changes are detectable
+- **Rate limiting** — Bucket4j + Redis on login endpoint (5 attempts per 60 seconds per IP)
+- **Idempotency key** — prevents duplicate journal submissions from network retry or double-click
+- **Pessimistic locking** — prevents race conditions on concurrent journal operations
+- **RBAC** — project admins can only access their assigned projects; cross-project data access is blocked
+- **Audit log** — every data change records the actor, action, entity, and timestamp
+- **BigDecimal** — all monetary values use `BigDecimal(19,2)` to avoid floating-point errors
+- **Flyway** — database schema versioned and migration-controlled
+
+---
+
+## Deployment Guide
+
+> For those looking to host this project publicly. Recommendations below are beginner-friendly,
+> free to start, and do not require a credit card.
+
+### Recommended: Railway
+
+[Railway.app](https://railway.app) is the most straightforward platform for deploying a
+Spring Boot + PostgreSQL + Redis stack with no credit card required on the free tier.
+
+**Step-by-step:**
+
+**1. Prepare your GitHub repository**
+```bash
+# Make sure your code is pushed (without .env!)
+git add .
+git commit -m "feat: production ready"
+git push origin main
+```
+
+**2. Sign up at Railway**
+- Go to [railway.app](https://railway.app)
+- Sign in with your GitHub account — no credit card needed
+
+**3. Create a new project**
+- Click **"New Project"** → **"Deploy from GitHub repo"**
+- Select your repository
+
+**4. Add PostgreSQL**
+- In your Railway project dashboard, click **"+ New"** → **"Database"** → **"PostgreSQL"**
+- Railway will provide connection variables automatically
+
+**5. Add Redis**
+- Click **"+ New"** → **"Database"** → **"Redis"**
+
+**6. Set environment variables**
+- Go to your app service → **"Variables"** tab
+- Add all variables from your `.env.example`:
+  ```
+  DB_HOST         → from Railway PostgreSQL (auto-linked)
+  DB_USERNAME     → from Railway PostgreSQL
+  DB_PASSWORD     → from Railway PostgreSQL
+  REDIS_HOST      → from Railway Redis
+  REDIS_PASSWORD  → from Railway Redis
+  JWT_SECRET      → generate a random 32+ character string
+  ```
+- Railway allows you to reference other service variables directly, e.g. `${{Postgres.PGHOST}}`
+
+**7. Add a `railway.json` in your project root**
+```json
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "healthcheckPath": "/actuator/health",
+    "restartPolicyType": "ON_FAILURE"
+  }
+}
+```
+
+**8. Deploy**
+- Railway will detect the Dockerfile and build automatically
+- Your app will be live at a URL like: `https://your-app.up.railway.app`
+
+**9. Verify**
+```bash
+curl https://your-app.up.railway.app/actuator/health
+# {"status":"UP"}
+```
+
+---
+
+### Alternative Options
+
+| Platform | Free Tier | Notes |
+|----------|-----------|-------|
+| [Railway](https://railway.app) | $5 credit/month | Best for this stack, Docker-native |
+| [Render](https://render.com) | Free web service | Spins down after inactivity; PostgreSQL free 90 days |
+| [Fly.io](https://fly.io) | Free allowance | Requires credit card for verification (charges only if exceeded) |
+| [Koyeb](https://koyeb.com) | Free nano instance | Docker-based, no credit card |
+
+> **Recommendation:** Start with Railway. It handles Docker, PostgreSQL, and Redis natively,
+> and the free $5 monthly credit is enough for a demo or portfolio project.
+
+---
+
+### Tips for Portfolio Presentation
+
+- Add the live Swagger UI URL to your GitHub repository description
+- Example: `https://your-app.up.railway.app/swagger-ui.html`
+- This lets recruiters explore your API without running anything locally
+- Keep the default `adminpusat / Admin@123` credentials in your seed data so reviewers can log in easily
+
+---
+
+*Flyway handles all database migrations automatically on first startup.*

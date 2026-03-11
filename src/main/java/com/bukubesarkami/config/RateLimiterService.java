@@ -34,11 +34,19 @@ public class RateLimiterService {
         this.refillTokens = refillTokens;
         this.refillSeconds = refillSeconds;
 
-        // Buat koneksi Lettuce langsung untuk Bucket4j
-        RedisClient redisClient = RedisClient.create(
-                "redis://" + lettuceConnectionFactory.getHostName()
-                        + ":" + lettuceConnectionFactory.getPort()
-        );
+        String host = lettuceConnectionFactory.getHostName();
+        int port = lettuceConnectionFactory.getPort();
+        String password = lettuceConnectionFactory.getPassword();
+
+        String redisUriString = String.format("redis://:%s@%s:%d",
+                password != null ? password : "",
+                host,
+                port);
+
+        log.info("RateLimiter connecting to Redis at {}:{}", host, port);
+
+        RedisClient redisClient = RedisClient.create(redisUriString);
+
         StatefulRedisConnection<byte[], byte[]> connection =
                 redisClient.connect(ByteArrayCodec.INSTANCE);
 

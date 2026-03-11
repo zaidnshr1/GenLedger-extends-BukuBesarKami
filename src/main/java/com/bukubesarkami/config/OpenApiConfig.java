@@ -13,11 +13,11 @@ import org.springframework.context.annotation.Configuration;
         info = @Info(
                 title = "BukuBesarKami API",
                 version = "1.0.0",
-                description = "General Ledger (Buku Besar) REST API — mencatat arus keuangan dengan akurasi 100%.",
+                description = "General Ledger (Buku Besar) REST API — mencatat arus keuangan.",
                 contact = @Contact(
-                        name = "Zaidan Shori",
+                        name = "M. Zaid Anshori",
                         email = "m.zaidanshori04@gmail.com",
-                        url = "https://github.com/zaidnshr1/BukuBesarKita"
+                        url = "https://github.com/zaidnshr1/GenLedger-extends-BukuBesarKami"
                 )
         ),
         servers = {
