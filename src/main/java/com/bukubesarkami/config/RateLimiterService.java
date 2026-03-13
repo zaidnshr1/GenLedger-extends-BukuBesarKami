@@ -37,13 +37,17 @@ public class RateLimiterService {
         String host = lettuceConnectionFactory.getHostName();
         int port = lettuceConnectionFactory.getPort();
         String password = lettuceConnectionFactory.getPassword();
+        boolean useSsl = lettuceConnectionFactory.isUseSsl();
 
-        String redisUriString = String.format("redis://:%s@%s:%d",
+        String protocol = useSsl ? "rediss" : "redis";
+
+        String redisUriString = String.format("%s://:%s@%s:%d",
+                protocol,
                 password != null ? password : "",
                 host,
                 port);
 
-        log.info("RateLimiter connecting to Redis at {}:{}", host, port);
+        log.info("RateLimiter connecting to Redis at {}:{} (SSL: {})", host, port, useSsl);
 
         RedisClient redisClient = RedisClient.create(redisUriString);
 
