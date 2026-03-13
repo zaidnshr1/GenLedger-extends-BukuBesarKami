@@ -15,7 +15,7 @@ import org.springframework.context.annotation.Configuration;
                 version = "1.0.0",
                 description = "General Ledger (Buku Besar) REST API — mencatat arus keuangan.",
                 contact = @Contact(
-                        name = "M. Zaid Anshori",
+                        name = "m.zaidanshori04@gmail.com",
                         email = "m.zaidanshori04@gmail.com",
                         url = "https://github.com/zaidnshr1/GenLedger-extends-BukuBesarKami"
                 )
