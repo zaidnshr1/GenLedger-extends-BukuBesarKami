@@ -147,6 +147,7 @@
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 				<configuration>
+					<mainClass>com.bukubesarkami.BukuBesarKamiApplication</mainClass>
 					<layers>
 						<enabled>true</enabled>
 					</layers>
