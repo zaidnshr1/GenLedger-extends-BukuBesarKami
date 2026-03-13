@@ -5,6 +5,10 @@ Built to ensure accurate, traceable, and secure cash flow management across mult
   
 **Stack:** Spring Boot 3.5.11 · Java 21 · PostgreSQL 16 · Redis 7 · Docker · JWT
 
+**Try It Out** [bit.ly/gen-ledger-v1](https://bit.ly/gen-ledger-v1)
+
+**Or** [https://multiple-brooke-zaid-anshori-e3835b81.koyeb.app/swagger-ui/index.html](https://multiple-brooke-zaid-anshori-e3835b81.koyeb.app/swagger-ui/index.html)
+
 ---
 
 ## Table of Contents
