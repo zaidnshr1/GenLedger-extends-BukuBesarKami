@@ -22,7 +22,7 @@ import org.springframework.context.annotation.Configuration;
         ),
         servers = {
                 @Server(url = "http://localhost:8080", description = "Development"),
-                @Server(url = "https://api.bukubesarkami.com", description = "Production")
+                @Server(url = "${PRODUCTION_URL}", description = "Production")
         }
 )
 @SecurityScheme(
