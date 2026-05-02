@@ -77,7 +77,7 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(List.of(
                 "https://multiple-brooke-zaid-anshori-e3835b81.koyeb.app",
                 "http://localhost:8080",
-                "https://github.com/zaidnshr1/FEgeneral-ledger"
+                "https://general-ledger.vercel.app"
         ));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With"));
