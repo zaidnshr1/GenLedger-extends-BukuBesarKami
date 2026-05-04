@@ -11,49 +11,11 @@ Built to ensure accurate, traceable, and secure cash flow management across mult
 
 ---
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Key Features](#key-features)
-- [Tech Stack](#tech-stack)
-- [Getting Started](#getting-started)
-- [API Endpoints](#api-endpoints)
-- [Request Example](#request-example)
-- [Security](#security)
-
----
-
 ## Overview
 
 BukuBesarKami is a backend system for managing a general ledger (Buku Besar) across multiple projects under one organization. It supports two roles: a central admin who manages users, projects, and reports, and a project admin who handles daily transactions for their assigned project.
 
 ---
-
-## Architecture
-
-### Project Structure
-
-```
-src/main/java/com/bukubesarkami/
-│
-├── common/
-│   ├── exception/          # AppException, GlobalExceptionHandler
-│   └── util/               # ApiResponse, EntryNumberGenerator,
-│                             SecurityUtil, IdempotencyService
-│
-├── config/                 # JWT, Security, Redis, RateLimiter, OpenAPI
-│
-├── core/
-│   ├── entity/             # User, Project, Account, JournalEntry,
-│   │                         JournalLine, AuditLog, RefreshToken
-│   └── repository/         # 7 Spring Data JPA repositories
-│
-└── features/
-    ├── auth/               # Login, register, refresh token, logout
-    ├── adminpusat/         # User management, projects, COA, reports
-    └── adminproject/       # Journal entries, budget summary
-```
 
 ### System Flow
 
@@ -138,7 +100,7 @@ stateDiagram-v2
 
 ## Getting Started
 
-### Option A — Docker (Recommended)
+### Docker
 
 **Prerequisites:** Docker + Docker Compose installed.
 
@@ -170,26 +132,6 @@ docker compose logs app --follow
 | Swagger UI | http://localhost:8080/swagger-ui.html |
 | pgAdmin4 | http://localhost:5050 |
 | Health check | http://localhost:8080/actuator/health |
-
----
-
-### Option B — Local Development
-
-**Prerequisites:** Java 21, Maven 3.9+, PostgreSQL 16+, Redis 7+
-
-```bash
-# 1. Create database
-psql -U postgres -c "CREATE DATABASE bukubesarkami;"
-
-# 2. Set environment variables
-export DB_USERNAME=postgres
-export DB_PASSWORD=your_password
-export REDIS_PASSWORD=your_redis_password
-export JWT_SECRET=YourSecretKeyMinimum32CharactersLong!
-
-# 3. Run
-mvn spring-boot:run
-```
 
 ---
 
@@ -270,71 +212,5 @@ password: Admin@123
 | POST | `/api/v1/project/journals/{id}/post` | Post journal (DRAFT → POSTED) |
 | POST | `/api/v1/project/journals/{id}/void` | Void journal with reason |
 | GET  | `/api/v1/project/budget/{projectId}` | Project budget summary |
-
----
-
-## Request Example
-
-**Create Journal Entry**
-
-```http
-POST /api/v1/project/journals
-Authorization: Bearer {access_token}
-X-Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
-Content-Type: application/json
-
-{
-  "projectId": "uuid-project",
-  "entryDate": "2026-06-01",
-  "description": "Purchase of project materials",
-  "referenceNumber": "INV-2026-001",
-  "lines": [
-    {
-      "accountId": "uuid-expense-account",
-      "debitAmount": 5000000,
-      "creditAmount": 0,
-      "description": "Material expense"
-    },
-    {
-      "accountId": "uuid-cash-account",
-      "debitAmount": 0,
-      "creditAmount": 5000000,
-      "description": "Cash payment"
-    }
-  ]
-}
-```
-
-**Unbalanced entry response (422):**
-```json
-{
-  "status": 422,
-  "error": "Unprocessable Entity",
-  "message": "Jurnal tidak seimbang: total debit harus sama dengan total kredit."
-}
-```
-
-**Rate limit exceeded response (429):**
-```json
-{
-  "status": 429,
-  "error": "Too Many Requests",
-  "message": "Terlalu banyak percobaan login. Coba lagi dalam 60 detik."
-}
-```
-
----
-
-## Security
-
-- **JWT** — access token (1 hour), refresh token (24 hours) with rotation
-- **Refresh token metadata** — IP address and User-Agent stored; suspicious device changes are detectable
-- **Rate limiting** — Bucket4j + Redis on login endpoint (5 attempts per 60 seconds per IP)
-- **Idempotency key** — prevents duplicate journal submissions from network retry or double-click
-- **Pessimistic locking** — prevents race conditions on concurrent journal operations
-- **RBAC** — project admins can only access their assigned projects; cross-project data access is blocked
-- **Audit log** — every data change records the actor, action, entity, and timestamp
-- **BigDecimal** — all monetary values use `BigDecimal(19,2)` to avoid floating-point errors
-- **Flyway** — database schema versioned and migration-controlled
 
 ---
